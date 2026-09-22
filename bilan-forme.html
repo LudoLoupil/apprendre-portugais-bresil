@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bilan Forme | wellnesstraining</title>
+<title>Bilan Forme</title>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -1547,12 +1547,45 @@ function exportCSV(anonymize) {
       bi.coach||''
     ]);
   });
-  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const csv = '﻿' + rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const filename = (anonymize ? 'bilans-anonymises' : 'bilans-complets')+'-'+new Date().toISOString().split('T')[0]+'.csv';
+  saveFile(filename, csv);
+}
+
+// Saves a generated file. Uses the hosted download bridge when the page runs
+// on claude.ai, and a plain blob link when opened directly from disk.
+async function saveFile(filename, text) {
+  const downloads = window.claude && window.claude.use
+    ? await window.claude.use('downloads').catch(() => null)
+    : null;
+
+  if (downloads) {
+    try {
+      await downloads.save({filename, data: text});
+    } catch (err) {
+      if (err && err.code === 'declined') return;
+      toast("Téléchargement indisponible ici — ouvrez le fichier depuis votre PC pour exporter.");
+    }
+    return;
+  }
+
+  const blob = new Blob([text], {type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = (anonymize ? 'bilans-anonymises' : 'bilans-complets')+'-'+new Date().toISOString().split('T')[0]+'.csv';
-  a.click(); URL.revokeObjectURL(url);
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#2d4556;border:1px solid #426989;border-radius:8px;padding:12px 20px;color:#e8f4fd;font-family:Barlow,sans-serif;font-size:0.85rem;z-index:2000;box-shadow:0 8px 28px rgba(0,0,0,0.4)';
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
 }
 
 // ============================================================
@@ -1634,8 +1667,17 @@ renderDashboard = function() {
       <button class="btn-csv" onclick="exportCSV(false)">📥 Export CSV complet</button>
       <button class="btn-csv" onclick="exportCSV(true)">🔒 Export CSV anonymisé</button>`;
     statsGrid.after(div);
+    hideExportIfUnavailable(div);
   }
 };
+
+// On claude.ai the page can only hand over a file through the download bridge.
+// If that is not granted, the buttons cannot do anything, so drop them.
+async function hideExportIfUnavailable(el) {
+  if (!(window.claude && window.claude.use)) return; // opened from disk: blob link works
+  const downloads = await window.claude.use('downloads').catch(() => null);
+  if (!downloads) el.remove();
+}
 
 // Patch openFiche to add compare button
 const _origOpenFiche = openFiche;
